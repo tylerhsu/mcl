@@ -1,36 +1,38 @@
-(function(worldMap) {
+(function(worldMap, Graphics, util) {
 
-    /*
-     * Robot class
+    // global keyboard manager
+    var keysPressed = {};
+
+    /**
+     * Robot
      */
     var Robot = function(world) {
         this.world = world;
         this.state = State.generate(world);
         this.radius = 25;
         this.scanDistance = 1000;
+        this.driveSpeed = 2;
+        this.rotateSpeed = 0.1;
     };
 
     Robot.prototype = {
-        draw: function(context) {
-            context.beginPath();
-            context.arc(this.state.x, this.state.y, this.radius, 2 * Math.PI, false);
-            context.fillStyle = '#8ED6FF';
-            context.fill();
-            context.closePath();
-            this.state.draw(context);
+        draw: function(gfx) {
+            gfx.drawCircle(this.state.x, this.state.y, this.radius, { fillStyle: '#8ED6FF' });
+            this.state.draw(gfx);
         }
 
         /*
          * Returns the euclidean distance to the nearest obstacle in the
-         * given direction from the robot, or undefined if no obstacle is found.
+         * given direction from the robot, up to maxDistance.  A return value
+         * of maxDistance implies that no obstacle was encountered.
          */
         , castRay: function(imageData, angle, maxDistance) {
             var x0 = this.state.x
             ,   y0 = this.state.y
             ,   x1 = this.state.x + Math.cos(angle) * maxDistance
             ,   y1 = this.state.y + Math.sin(angle) * maxDistance
-            ,   distance;
-            this._traceLine(x0, y0, x1, y1, function(x, y) {
+            ,   distance = maxDistance;
+            util.traceLine(x0, y0, x1, y1, function(x, y) {
                 var pixelOffset = (x + y * imageData.width) * 4
                 ,   red = imageData.data[pixelOffset]
                 ,   green = imageData.data[pixelOffset + 1]
@@ -39,8 +41,7 @@
                 // wall pixel?
                 if (red > 240 && green < 5 && blue < 5) {
                     // 'distance' refers to the outer scope
-                    // distance = Math.sqrt(Math.pow(x - x0, 2) + Math.pow(y - y0, 2));
-                    distance = [x, y];
+                    distance = Math.sqrt(Math.pow(x - x0, 2) + Math.pow(y - y0, 2));
                     return true;
                 };
                 return false;
@@ -52,26 +53,17 @@
         /*
          * Casts _resolution_ rays, radially equidistant, from the robot's center.
          * Returns an array containing the distances reported by each of the rays
-         * to the nearest obstacle in that direction, starting from the ray cast at
-         * 0 radians (directly to the right/east) and moving clockwise.
+         * to the nearest obstacle in that direction, starting from the ray cast forward,
+         * relative to the robot's heading, and moving clockwise.
          */
-        , scan: function(context, resolution) {
+        , scan: function(resolution) {
             var increment = (2 * Math.PI) / resolution
-            ,   angle = 0
-            ,   imageData = context.getImageData(0, 0, context.canvas.width, context.canvas.height)
+            ,   angle = this.state.angle
+            ,   imageData = this.world.context.getImageData(0, 0, this.world.context.canvas.width, this.world.context.canvas.height)
             ,   distances = [];
 
             for (var n = 0; n < resolution; n++) {
-                // distances.push(this.castRay(imageData, angle, this.scanDistance));
-                var point = this.castRay(imageData, angle, this.scanDistance);
-                if (point) {
-                    context.beginPath();
-                    context.moveTo(this.state.x, this.state.y);
-                    context.lineTo(point[0], point[1]);
-                    context.strokeStyle = '#0000FF';
-                    context.stroke();
-                    context.closePath();
-                }
+                distances.push(this.castRay(imageData, angle, this.scanDistance));
                 angle += increment;
             }
 
@@ -79,69 +71,38 @@
         }
 
         /*
-         * Iterates over the pixel coordinates between [x0, y0] and [x1, y1]
-         * using Bresenham's algorithm.
-         * 
-         * Passes each coordinate to the process() callback,
-         * stopping when process() returns truthily or when the line's endpoint
-         * is reached.
+         * Simulate one physics timestep
          */
-        , _traceLine: function(x0, y0, x1, y1, process) {
-            var temp
-            ,   steep = Math.abs(y1 - y0) > Math.abs(x1 - x0);
+        , simulate: function() {
+            this.ddrive = 0;
+            this.drotate = 0;
 
-            if (steep) {
-                temp = x0;
-                x0 = y0;
-                y0 = temp;
-
-                temp = x1;
-                x1 = y1;
-                y1 = temp;
+            // w
+            if (keysPressed['87']) {
+                this.ddrive = this.driveSpeed;
             }
-            if (x0 > x1) {
-                temp = x0;
-                x0 = x1;
-                x1 = temp;
-
-                temp = y0;
-                y0 = y1;
-                y1 = temp;
+            // s
+            if (keysPressed['83']) {
+                this.ddrive = -this.driveSpeed;
+            }
+            // a
+            if (keysPressed['65']) {
+                this.drotate = -this.rotateSpeed;
+            }
+            // d
+            if (keysPressed['68']) {
+                this.drotate = this.rotateSpeed;
             }
 
-            var deltax = x1 - x0
-            ,   deltay = Math.abs(y1 - y0)
-            ,   error = 0
-            ,   ystep
-            ,   y = y0
-            ,   x = x0
-            ,   ret;
-
-            if (y0 < y1) {
-                ystep = 1;
-            } else {
-                ystep = -1;
-            }
-
-            while (!ret && x <= x1) {
-                if (steep) {
-                    ret = process(y, x);
-                }
-                else {
-                    ret = process(x, y);
-                }
-                error += deltay;
-                if (2 * error >= deltax) {
-                    y += ystep;
-                    error -= deltax;
-                }
-                x++;
-            }
+            // update position
+            this.state.x = this.state.x + Math.cos(this.state.angle) * this.ddrive;
+            this.state.y = this.state.y + Math.sin(this.state.angle) * this.ddrive;
+            this.state.angle = this.state.angle + this.drotate;
         }
     };
 
-    /*
-     * State class
+    /**
+     * State
      * 
      * Represents a robot pose consisting of coordinates and heading.
      */
@@ -167,57 +128,71 @@
     };
 
     State.prototype = {
-        draw: function(context) {
-            context.beginPath();
+        draw: function(gfx) {
             // draw the dot
-            context.arc(this.x, this.y, this.dotRadius, 0, 2 * Math.PI, false);
-            context.fillStyle = '#000000';
-            context.fill();
+            gfx.drawCircle(this.x, this.y, this.dotRadius);
             // draw the ray
-            context.moveTo(this.x, this.y);
-            context.lineTo(
+            gfx.drawLine(
+                this.x,
+                this.y,
                 this.x + Math.cos(this.angle) * this.rayLength,
                 this.y + Math.sin(this.angle) * this.rayLength
             );
-            context.strokeStyle = '#000000';
-            context.stroke();
-            context.closePath();
         }
     };
 
-    /*
-     * World class
+    /**
+     * World
      * 
      * Describes the static world.
      */
-    var World = function(width, height, worldMap) {
+    var World = function(width, height, worldMap, context) {
+        this.context = context;
         this.width = width;
         this.height = height;
         this.map = worldMap;
     };
     World.prototype = {
-        draw: function(context) {
-            context.beginPath();
+        draw: function(gfx) {
             for (var n = 0; n < this.map.length; n++) {
                 var line = this.map[n];
-                context.moveTo(line[0][0], line[0][1]);
-                context.lineTo(line[1][0], line[1][1]);
+                gfx.drawLine(line[0][0], line[0][1], line[1][0], line[1][1], { strokeStyle: '#FF0000', lineWidth: 2 });
             }
-            context.strokeStyle = '#FF0000';
-            context.lineWidth = 2;
-            context.stroke();
-            context.closePath();
         }
     };
 
+    /**
+     * Entry point
+     */
     window.onload = function() {
-        var canvas = document.getElementById('canvas');
-        var context = canvas.getContext('2d');
-        
-        var world = new World(canvas.width, canvas.height, worldMap);
-        world.draw(context);
-        var robot = new Robot(world);
-        robot.draw(context);
-        robot.scan(context, 20);
+        var canvas = document.getElementById('canvas')
+        ,   context = canvas.getContext('2d')
+        ,   gfx = new Graphics(context)
+        ,   world = new World(canvas.width, canvas.height, worldMap, context)
+        ,   robot = new Robot(world);
+
+        // keyboard listeners
+        document.onkeydown = function(e) {
+            keysPressed[e.keyCode.toString()] = true;
+        };
+
+        document.onkeyup = function(e) {
+            keysPressed[e.keyCode.toString()] = false;
+        };
+
+        setInterval(function() {
+            simulate();
+            draw();
+        }, 25);
+
+        function simulate() {
+            robot.simulate();
+        }
+
+        function draw() {
+            gfx.clear();
+            world.draw(gfx);
+            robot.draw(gfx);
+        }
     };
-}(worldMap));
+}(worldMap, Graphics, util));
