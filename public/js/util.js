@@ -1,10 +1,18 @@
 var util = (function() {
     var util = {
+
+        /*
+         * Returns the gaussian distribution of x.
+         */
+        gaussian: function(x, mean, variance) {
+            return (1 / (variance * Math.sqrt(2 * Math.PI))) * Math.pow(Math.E, -0.5 * Math.pow(x / variance, 2));
+        }
+
         /*
          * Returns a copy of the given array with its values
          * normalized so they sum to 1.
          */
-        normalize: function(arr) {
+        , normalize: function(arr) {
             var n
             ,   val
             ,   factor

@@ -35,7 +35,7 @@
 
             for (n = 0; n < this.belief.length; n++) {
                 this.belief[n] = this.agent.predict(this.belief[n]);
-                weights[n] = this.agent.updateBelief(this.belief[n]);
+                weights[n] = this.agent.weightBelief(this.belief[n]);
             }
 
             // resample
@@ -92,6 +92,14 @@
             });
 
             return distance;
+        }
+
+        /*
+         * Returns the probability of reporting a reading
+         * that is _distance_ units away from the sensor's true location.
+         */
+        , pdf: function(distance) {
+            return (1 / (this.variance * Math.sqrt(2 * Math.PI))) * Math.pow(Math.E, -0.5 * Math.pow(distance / this.variance, 2));
         }
 
         /*
@@ -221,12 +229,20 @@
         }
 
         /*
-         * Given a predicted state, returns a weighting coefficient
-         * that expresses the likelihood of the state given current sensory information.
+         * Returns the probability of the proposed state being true, given current
+         * sensory information.
+         * The probability is a function of the distance between our actual
+         * current sensor reading and a known reading calculated from the proposed state
+         * on a map of the environment.
          */
         , weightBelief: function(state) {
-            // 'true' scan, done by ray tracing on a known map
-            var mapScan = this.sensor.scan(this.map, state, 0);
+            // An ideal scan from the proposed state
+            var mapScan = this.sensor.scan(this.map, state, 0)
+            // real scan, from the robot's current state (with noise)
+            ,   realScan = this.sensor.scan(this.map, this.state, 5)
+            ,   distance = Math.abs(util.distance(mapScan, realScan));
+            
+            return this.sensor.pdf(distance);
         }
     };
 
